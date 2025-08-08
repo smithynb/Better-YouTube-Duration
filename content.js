@@ -18,6 +18,8 @@
     let debugMode = false; // Set to true for debugging
     // NEW: Track the exact text we last wrote into SponsorBlock so we can detect real SB-originated updates
     let lastAdjustedSponsorText = '';
+    // Guard to ignore observer callbacks caused by our own DOM writes to SponsorBlock element
+    let suppressSBObserver = false;
 
     function log(...args) {
         if (debugMode) {
@@ -171,13 +173,21 @@
             const adjustedSponsorFreeDuration = sponsorFreeDuration / playbackRate;
             const adjustedTimeStr = formatTime(adjustedSponsorFreeDuration);
             
-            // Update SponsorBlock's element with our calculated duration
-            sponsorBlockElement.textContent = ` (${adjustedTimeStr})`;
-            hasModifiedSponsorBlock = true; // Mark that we've modified the display
-            // Track what we wrote so that we can distinguish SB-originated updates later
-            lastAdjustedSponsorText = sponsorBlockElement.textContent;
-            
-            log(`Updated SponsorBlock duration: ${formatTime(sponsorFreeDuration)} / ${playbackRate} = ${adjustedTimeStr}`);
+            // Only update SponsorBlock's element if the text actually changes to avoid mutation loops
+            const newSBText = ` (${adjustedTimeStr})`;
+            if (sponsorBlockElement.textContent !== newSBText) {
+                // Suppress observer while we perform our own write to avoid feedback loop
+                suppressSBObserver = true;
+                sponsorBlockElement.textContent = newSBText;
+                hasModifiedSponsorBlock = true; // Mark that we've modified the display
+                // Track normalized content we wrote to avoid mistaking it for a new SB baseline
+                lastAdjustedSponsorText = newSBText.trim();
+                // Release suppression in next tick
+                setTimeout(() => { suppressSBObserver = false; }, 0);
+                log(`Updated SponsorBlock duration: ${formatTime(sponsorFreeDuration)} / ${playbackRate} = ${adjustedTimeStr}`);
+            } else {
+                log('SponsorBlock adjusted duration already displayed; skipping write');
+            }
             
         } else {
             // No SponsorBlock - use original implementation
@@ -321,24 +331,40 @@
             }
             
             if (sponsorBlockChanged) {
-                // NEW: When SB updates, capture its new baseline if the text differs from what we last wrote
+                // If this change was triggered by our own write, ignore it entirely
+                if (suppressSBObserver) {
+                    log('Ignoring SponsorBlock mutation from our own write');
+                    return;
+                }
+
                 const el = getSponsorBlockElement();
-                const currentText = el?.textContent?.trim() || '';
-                if (currentText && currentText !== lastAdjustedSponsorText) {
-                    const seconds = calculateSponsorFreeDuration();
-                    if (seconds && seconds > 0) {
-                        sponsorFreeDuration = seconds;
-                        baselineCaptured = true; // refresh baseline on genuine SB updates
-                        hasModifiedSponsorBlock = false; // we didn't write this
-                        log(`Refreshed SponsorBlock baseline to ${formatTime(sponsorFreeDuration)} from SB update`);
-                        // If not at 1x, immediately reflect the new baseline in our adjusted display
-                        if (currentVideo && currentVideo.playbackRate !== 1) {
-                            setTimeout(updateDurationDisplay, 50);
+                if (!el) return;
+                const currentText = el.textContent?.trim() || '';
+                const isOurWrite = currentText && currentText === lastAdjustedSponsorText;
+
+                // Never capture/refresh baseline at non-1x; avoids capturing our adjusted value
+                if (currentVideo && currentVideo.playbackRate !== 1) {
+                    // If SB changed on its own and we already have a baseline, just refresh UI
+                    if (!isOurWrite && sponsorFreeDuration != null) {
+                        setTimeout(updateDurationDisplay, 50);
+                    }
+                    return;
+                }
+
+                // At 1x, if SB updated with new content not written by us, try to capture baseline
+                if (!isOurWrite) {
+                    // Ensure we only capture when we were awaiting a clean 1x baseline and haven't modified SB
+                    const captured = detectSponsorFreeDuration();
+                    if (!captured) {
+                        // Fallback: if detection was skipped due to flags, still try to parse once at 1x
+                        const seconds = calculateSponsorFreeDuration();
+                        if (seconds && seconds > 0 && !hasModifiedSponsorBlock) {
+                            sponsorFreeDuration = seconds;
+                            baselineCaptured = true;
+                            awaitingBaselineAt1x = false;
+                            log(`Captured SponsorBlock baseline at 1x: ${formatTime(sponsorFreeDuration)}`);
                         }
                     }
-                } else if (currentVideo && currentVideo.playbackRate !== 1) {
-                    // At non-1x, keep our display in sync (e.g., if rate changed)
-                    setTimeout(updateDurationDisplay, 100);
                 }
             }
         });

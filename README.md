@@ -17,7 +17,7 @@ When SponsorBlock is installed and has segments to skip **WITH speed other than 
 2. Open Chrome/Chromium and navigate to `chrome://extensions/`
 3. Enable "Developer mode" (toggle in top right)
 4. Click "Load unpacked" and select the extension folder
-5. The extension will be installed and active on YouTube
+5. The extension will be installed and active next time you open YouTube
 
 ### Manual Installation:
 
@@ -40,6 +40,6 @@ When SponsorBlock is installed and has segments to skip **WITH speed other than 
 - **Duration Calculation**: Calculates adjusted duration as `original_duration / playback_rate`
 - **SponsorBlock Integration**: Detects SponsorBlock's duration modifications and applies speed adjustment to them rather than making its own duration label
 
-## Known Problems
-
-1. Does not fully work with SponsorBlock.
+## Troubleshooting 
+Quickly made to fix a problem I had. May not work on all machines with different browsers and other extensions. 
+Feel free to open issues or pr to make this better.
